@@ -1,0 +1,138 @@
+import smbus
+import time
+import board
+import adafruit_character_lcd.character_lcd_rgb_i2c as character_lcd
+import argparse
+import cv2
+from picamera.array import PiRGBArray
+from picamera import PiCamera
+import time
+import numpy as np
+
+oldAngle = 0
+quad = 5
+desired = 0
+oldQuad = 0
+
+# for RPI version 1, use “bus = smbus.SMBus(0)”
+bus = smbus.SMBus(1)
+
+
+
+# Initialise I2C bus.
+i2c = board.I2C()  # uses board.SCL and board.SDA
+
+
+
+# This is the address we setup in the Arduino Program
+address = 0x04
+
+def comVis():
+    global quad
+    global marker
+    ymarker = 0
+    marker = False
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Cannot open camera")
+        exit()
+    while True:
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+        # if frame is read correctly ret is True
+        if not ret:
+            print("Can't receive frame (stream end?). Exiting ...")
+            break
+        # replace following functions with my functions
+
+        #load the image
+        imagehsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        imagehsv[0:130, 0:640] = (0,0,0)
+        imagehsv[0:480, 460:640] = (0,0,0)
+        #define the list of boundaries
+        lower_blue = np.array([88,150,50])
+        upper_blue = np.array([118,255,255])
+   
+        #find colors within the specified boundaries and apply the mask
+        mask = cv2.inRange(imagehsv, lower_blue, upper_blue)
+        output = cv2.bitwise_and(imagehsv, imagehsv, mask=mask)
+        
+
+        #cleaning up image
+        kernel = np.ones((15,15),np.uint8)
+        opening = cv2.morphologyEx(output, cv2.MORPH_CLOSE,kernel)
+
+        #tape location
+        imageG = cv2.cvtColor(output, cv2.COLOR_BGR2GRAY)
+        imageLL = cv2.threshold(imageG,50,255,cv2.THRESH_BINARY)
+        
+        tup=cv2.findNonZero(imageLL[1])
+        tup2= cv2.mean(tup)
+        newarray = np.asarray(tup)
+        bottomY = newarray.max()
+        numY = int(bottomY or 0)
+        #croppic = imageLL[0:400, 480:480]
+        #cv2.imshow("cropped",croppic)
+    
+        #print("Blue tape located at ", round(tup2[0]), round(tup2[1]))
+        angle = 27*((((opening.shape[1])/2)-(tup2[0]))/(opening.shape[1]/2))
+        angle = round(angle, 1)
+        data2send = []
+        data2send.append(int(angle))
+        #print("Angle in degrees: ", angle )
+        #writePosition(int(angle))
+        if(tup2[0]==0 or tup2[1]==0):
+            marker=False
+     
+           
+        else:
+            marker=True
+
+            Xmiddleofimage = opening.shape[1]/2
+            Ymiddleofimage = opening.shape[0]/2
+        
+        #check if tape at bottom of screen
+        if(numY > 470):
+            ymarker= 1
+        elif (numY < 470 or numY == 'None'):
+            ymarker= 0
+            
+    
+        data2send.append(int(ymarker))
+        writePosition (data2send)
+        print(bottomY)
+    
+            
+            
+
+             #These if statements were used in order to assign quadrants depending on the values of the centers of the aruco marker.
+        #if (tup2[1]==  
+   
+        # Display the resulting frame
+        cv2.imshow('imageLL', opening)
+        #cv2.imshow('frame', opening)
+        if cv2.waitKey(1) == ord('q'):
+            break
+        #to run sysint or not
+        #if marker == True:
+            #sysInt()
+                
+    # When everything done, release the capture
+    cap.release()
+    cv2.destroyAllWindows()
+
+def writePosition(value):
+    #bus.write_byte(address, value)
+    #bus.write_byte_data(address, 0, value)
+    bus.write_i2c_block_data(address, 0, value)
+    return -1
+
+def readPosition():
+    number = bus.read_byte(address)
+    #number = bus.read_byte_data(address, 0)
+    #number = bus.read_i2c_block_data(address,0, datasize)
+    return number
+
+comVis()
+
+        
